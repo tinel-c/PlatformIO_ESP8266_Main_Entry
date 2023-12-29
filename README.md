@@ -30,30 +30,40 @@ Compile and upload to the board.
 * Commands accepted
 
 ```
-SecondGate/CMD/Relay1               ON / OFF
-SecondGate/CMD/Relay2               ON / OFF
-SecondGate/CMD/Relay3               ON / OFF
-SecondGate/CMD/Relay4               ON / OFF
-SecondGate/CMD/Relay5               ON / OFF
-SecondGate/CMD/Relay6               ON / OFF
+MainGate/CMD/Relay1               ON / OFF
+MainGate/CMD/Relay2               ON / OFF
+MainGate/CMD/Relay3               ON / OFF
+MainGate/CMD/Relay4               ON / OFF
+
 ```
 
 * Status reports
 
 ```
-SecondGate/STAT/Relay1              ON / OFF
-SecondGate/STAT/Relay2              ON / OFF
-SecondGate/STAT/Relay3              ON / OFF
-SecondGate/STAT/Relay4              ON / OFF
-SecondGate/STAT/Relay5              ON / OFF
-SecondGate/STAT/Relay6              ON / OFF
+MainGate/STAT/Relay1              ON / OFF
+MainGate/STAT/Relay2              ON / OFF
+MainGate/STAT/Relay3              ON / OFF
+MainGate/STAT/Relay4              ON / OFF
+
+MainGate/STAT/eventRelay          ON / OFF
+MainGate/STAT/eventKeypad         ON / OFF
+MainGate/STAT/eventPower          ON / OFF
+
 ```
 
+```
+MainGate/STAT/reccurentStatusRelay1  Relay 1 OFF / Relay 1 ON
+MainGate/STAT/reccurentStatusRelay2  Relay 2 OFF / Relay 2 ON
+MainGate/STAT/reccurentStatusRelay3  Relay 3 OFF / Relay 3 ON
+MainGate/STAT/reccurentStatusRelay4  Relay 4 OFF / Relay 4 ON
+MainGate/STAT/reccurentStatusKeypad  Keypad OFF / Keypad ON
+MainGate/STAT/reccurentStatusMains   Mains OFF / Mains ON
 
+```
 * Debug messages
 
 ```
-SecondGate/STAT/message
+MainGate/STAT/message
 ```
 
 ## Node-RED command structure
