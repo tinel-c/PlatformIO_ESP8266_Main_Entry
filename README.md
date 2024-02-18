@@ -1,11 +1,9 @@
-# PlatformIO ESP 8266 Motorized Gate Wifi Automation
+# PlatformIO ESP 8266 Main Gate automation
 
 ## Overview for the project
 
 The project is the automation code made for PlatformIO IDE and arduino based code.
-Uses the pinout from the gate motor to trigger the wifi automation.
-It brings the commands from the motor to a mqtt server.
-Also allows led strips to be commanded with mqtt commands.
+Opens the gate and manages the command of the lock
 
 ![Automation box image](https://github.com/tinel-c/PlatformIO_ESP8266_Second_gate_automation/blob/main/img/Gate_automation.png?raw=true)
 
@@ -15,9 +13,10 @@ Also allows led strips to be commanded with mqtt commands.
 
 ### HW used in the project
 
-* 12V Power source 60W to power the led strips
+* 12V Power source with battery back-up
 * ESP8266 4 relay board to automate the gate motor
-* 2 FR120n mosfet modules to power the led strips
+* Coil lock 
+* Keypad
 
 ## Configuration
 
@@ -34,6 +33,17 @@ MainGate/CMD/Relay1               ON / OFF
 MainGate/CMD/Relay2               ON / OFF
 MainGate/CMD/Relay3               ON / OFF
 MainGate/CMD/Relay4               ON / OFF
+
+```
+
+statusReccurence - reccurence time to report the status on the STAT fields below (default 30s)
+debounceSampleTime - the time the process of the input is executed after interrupt occurs (default 1s)
+relayProcessTimer - how much time the relay for opening the door is kept closed (default 0.6s)
+
+```
+MainGate/CMD/statusReccurence
+MainGate/CMD/debounceSampleTime
+MainGate/CMD/relayProcessTimer
 
 ```
 
@@ -68,4 +78,4 @@ MainGate/STAT/message
 
 ## Node-RED command structure
 
-![Automation box image](https://github.com/tinel-c/PlatformIO_ESP8266_Second_gate_automation/blob/main/img/Node_red_automation.PNG?raw=true)
+![Automation box image](https://github.com/tinel-c/PlatformIO_ESP8266_Main_Entry/blob/main/img/Main_gate_node_red_automation.PNG?raw=true)
