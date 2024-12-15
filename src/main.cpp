@@ -12,6 +12,10 @@ char relayStatusArray[4] = {0,0,0,0};
 // input status
 char inputStatusArray[2] = {0,0};
 
+// used relay to open the hate
+char gateRelayUsed = 2;
+
+
 // mqtt setup
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -74,13 +78,13 @@ void processInputPins()
 }
 
 // close the relays after the keypad has been activated
-bool closeRelay2(void *) {
+bool closeRelay(void *) {
   char statusReport[20];
   Serial.println("Close relay 2!!!");
   strcpy(statusReport, "OFF");
   client.publish("MainGate/STAT/eventRelay", statusReport);
   client.publish("MainGate/STAT/Relay2", statusReport);
-  relayStatusArray[1] = 0;
+  relayStatusArray[gateRelayUsed] = 0;
   processRelayStatus();
   return false; // to repeat the action - false to stop
 }
@@ -88,14 +92,14 @@ bool closeRelay2(void *) {
 void openGate() {
   char statusReport[20];
   // open gate
-  relayStatusArray[1] = 1;
+  relayStatusArray[gateRelayUsed] = 1;
   // trigger relay back to 0 in 1 second
   processRelayStatus();
-  Serial.println("Close relay 2!!!");
+  Serial.println("Close relay 3!!!");
   strcpy(statusReport, "ON");
   client.publish("MainGate/STAT/eventRelay", statusReport);
-  client.publish("MainGate/STAT/Relay2", statusReport);
-  relayProcessTimer.in(relayGateOpenProcessingTime, closeRelay2);
+  client.publish("MainGate/STAT/Relay3", statusReport);
+  relayProcessTimer.in(relayGateOpenProcessingTime, closeRelay);
 }
 
 // function that treats the debouncing of the inputs
