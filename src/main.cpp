@@ -4,6 +4,7 @@
 #include <PubSubClient.h>
 #include <arduino-timer.h>
 #include "password.h"
+#include "app_logic.h"
 
 
 // internal relay status
@@ -32,6 +33,17 @@ int relayGateOpenProcessingTime = 600;
 // the interval when sample is taken for debounce
 int debounceSampleTime = 1000;
 
+// reconnect timing (ms)
+unsigned long wifiReconnectInterval = 5000;
+unsigned long mqttReconnectInterval = 5000;
+unsigned long lastWifiReconnectAttempt = 0;
+unsigned long lastMqttReconnectAttempt = 0;
+
+// runtime mode flags
+bool mainsPowerAvailable = true;
+unsigned long gateRelayOnSince = 0;
+unsigned long gateRelayMaxOnDuration = 5000;
+
 // timer for status reporting
 auto timer = timer_create_default();
 auto relayProcessTimer = timer_create_default();
@@ -48,6 +60,17 @@ int keyPadDectivated = 0;
 
 int mainsPowerDownActivated = 0;
 int mainsPowerDownDeactivated = 0;
+
+bool canUseCloudServices() {
+  return app_logic::canUseCloudServices(mainsPowerAvailable);
+}
+
+bool safePublish(const char* topic, const char* payload) {
+  if (canUseCloudServices() && client.connected()) {
+    return client.publish(topic, payload);
+  }
+  return false;
+}
 
 
 // activate the processing of the internal status of the relays
@@ -80,11 +103,12 @@ void processInputPins()
 // close the relays after the keypad has been activated
 bool closeRelay(void *) {
   char statusReport[20];
-  Serial.println("Close relay 2!!!");
+  Serial.println("Close gate relay");
   strcpy(statusReport, "OFF");
-  client.publish("MainGate/STAT/eventRelay", statusReport);
-  client.publish("MainGate/STAT/Relay2", statusReport);
+  safePublish("MainGate/STAT/eventRelay", statusReport);
+  safePublish("MainGate/STAT/Relay3", statusReport);
   relayStatusArray[gateRelayUsed] = 0;
+  gateRelayOnSince = 0;
   processRelayStatus();
   return false; // to repeat the action - false to stop
 }
@@ -93,13 +117,31 @@ void openGate() {
   char statusReport[20];
   // open gate
   relayStatusArray[gateRelayUsed] = 1;
+  gateRelayOnSince = millis();
   // trigger relay back to 0 in 1 second
   processRelayStatus();
-  Serial.println("Close relay 3!!!");
+  Serial.println("Open gate relay");
   strcpy(statusReport, "ON");
-  client.publish("MainGate/STAT/eventRelay", statusReport);
-  client.publish("MainGate/STAT/Relay3", statusReport);
+  safePublish("MainGate/STAT/eventRelay", statusReport);
+  safePublish("MainGate/STAT/Relay3", statusReport);
   relayProcessTimer.in(relayGateOpenProcessingTime, closeRelay);
+}
+
+void enforceGateRelayFailsafe() {
+  if (relayStatusArray[gateRelayUsed] == 0) {
+    return;
+  }
+
+  if (gateRelayOnSince == 0) {
+    gateRelayOnSince = millis();
+    return;
+  }
+
+  unsigned long now = millis();
+  if ((now - gateRelayOnSince) >= gateRelayMaxOnDuration) {
+    Serial.println("Failsafe: gate relay forced OFF");
+    closeRelay(nullptr);
+  }
 }
 
 // function that treats the debouncing of the inputs
@@ -118,10 +160,10 @@ bool inputDebounceProcessing(void *) {
       keyPadDectivated = 1;
     } 
 
-    if(keyPadActivated == 1) {
+    if(app_logic::shouldOpenGateFromKeypad(keyPadActivated == 1)) {
       Serial.println("Keypad activated!!!");
       strcpy(statusReport, "ON");
-      client.publish("MainGate/STAT/eventKeypad", statusReport);
+      safePublish("MainGate/STAT/eventKeypad", statusReport);
       openGate();
       keyPadActivated = 0;
     } 
@@ -129,7 +171,7 @@ bool inputDebounceProcessing(void *) {
     if(keyPadDectivated == 1) {
       Serial.println("Keypad deactivated!!!");
       strcpy(statusReport, "OFF");
-      client.publish("MainGate/STAT/eventKeypad", statusReport);
+      safePublish("MainGate/STAT/eventKeypad", statusReport);
       keyPadDectivated = 0;
     }
   }
@@ -148,13 +190,15 @@ bool inputDebounceProcessing(void *) {
     if(mainsPowerDownActivated == 1) {
       Serial.println("Power down detected!!!");
       strcpy(statusReport, "OFF");
-      client.publish("MainGate/STAT/eventPower", statusReport);
+      mainsPowerAvailable = false;
+      safePublish("MainGate/STAT/eventPower", statusReport);
       mainsPowerDownActivated = 0;
     }
     if (mainsPowerDownDeactivated == 1)  {
     Serial.println("Power recovered detected!!!");
     strcpy(statusReport, "ON");
-    client.publish("MainGate/STAT/eventPower", statusReport);
+    mainsPowerAvailable = true;
+    safePublish("MainGate/STAT/eventPower", statusReport);
     mainsPowerDownDeactivated = 0;
     } 
   } 
@@ -168,61 +212,62 @@ bool mqttStatusReporting(void *) {
   processInputPins();
   Serial.println("Status reporting");
   if(relayStatusArray[0] == 0) {
-    strcpy(statusReport, "Relay 1 OFF");
-    client.publish("MainGate/STAT/reccurentStatusRelay1", statusReport);
+    strcpy(statusReport, app_logic::onOff(false));
+    safePublish("MainGate/STAT/reccurentStatusRelay1", statusReport);
     Serial.println("Relay 1 OFF");
   } else {
-    strcpy(statusReport, "Relay 1 ON");
-    client.publish("MainGate/STAT/reccurentStatusRelay1", statusReport);
+    strcpy(statusReport, app_logic::onOff(true));
+    safePublish("MainGate/STAT/reccurentStatusRelay1", statusReport);
     Serial.println("Relay 1 ON");
   }
 
   if(relayStatusArray[1] == 0) {
-    strcpy(statusReport, "Relay 2 OFF");
-    client.publish("MainGate/STAT/reccurentStatusRelay2", statusReport);
+    strcpy(statusReport, app_logic::onOff(false));
+    safePublish("MainGate/STAT/reccurentStatusRelay2", statusReport);
     Serial.println("Relay 2 OFF");
   } else {
-    strcpy(statusReport, "Relay 2 ON");
-    client.publish("MainGate/STAT/reccurentStatusRelay2", statusReport);
+    strcpy(statusReport, app_logic::onOff(true));
+    safePublish("MainGate/STAT/reccurentStatusRelay2", statusReport);
     Serial.println("Relay 2 ON");
   }
 
   if(relayStatusArray[2] == 0) {
-    strcpy(statusReport, "Relay 3 OFF");
-    client.publish("MainGate/STAT/reccurentStatusRelay3", statusReport);
+    strcpy(statusReport, app_logic::onOff(false));
+    safePublish("MainGate/STAT/reccurentStatusRelay3", statusReport);
     Serial.println("Relay 3 OFF");
   } else {
-    strcpy(statusReport, "Relay 3 ON");
-    client.publish("MainGate/STAT/reccurentStatusRelay3", statusReport);
+    strcpy(statusReport, app_logic::onOff(true));
+    safePublish("MainGate/STAT/reccurentStatusRelay3", statusReport);
     Serial.println("Relay 3 ON");
   }
 
   if(relayStatusArray[3] == 0) {
-    strcpy(statusReport, "Relay 4 OFF");
-    client.publish("MainGate/STAT/reccurentStatusRelay4", statusReport);
+    strcpy(statusReport, app_logic::onOff(false));
+    safePublish("MainGate/STAT/reccurentStatusRelay4", statusReport);
     Serial.println("Relay 4 OFF");
   } else {
-    strcpy(statusReport, "Relay 4 ON");
-    client.publish("MainGate/STAT/reccurentStatusRelay4", statusReport);
+    strcpy(statusReport, app_logic::onOff(true));
+    safePublish("MainGate/STAT/reccurentStatusRelay4", statusReport);
     Serial.println("Relay 4 ON");
   }
 
   if(inputStatusArray[0] == 0) {
-    strcpy(statusReport, "Keypad OFF");
-    client.publish("MainGate/STAT/reccurentStatusKeypad", statusReport);
+    strcpy(statusReport, app_logic::onOff(false));
+    safePublish("MainGate/STAT/reccurentStatusKeypad", statusReport);
     Serial.println("Keypad OFF");
   } else {
-    strcpy(statusReport, "Keypad ON");
-    client.publish("MainGate/STAT/reccurentStatusKeypad", statusReport);
+    strcpy(statusReport, app_logic::onOff(true));
+    safePublish("MainGate/STAT/reccurentStatusKeypad", statusReport);
     Serial.println("Keypad ON");
   }
-  if(inputStatusArray[1] == 0) {
-    strcpy(statusReport, "Mains OFF");
-    client.publish("MainGate/STAT/reccurentStatusMains", statusReport);
+  mainsPowerAvailable = (inputStatusArray[1] == 1);
+  if(mainsPowerAvailable == false) {
+    strcpy(statusReport, app_logic::onOff(false));
+    safePublish("MainGate/STAT/reccurentStatusMains", statusReport);
     Serial.println("Mains OFF");
   } else {
-    strcpy(statusReport, "Mains ON");
-    client.publish("MainGate/STAT/reccurentStatusMains", statusReport);
+    strcpy(statusReport, app_logic::onOff(true));
+    safePublish("MainGate/STAT/reccurentStatusMains", statusReport);
     Serial.println("Mains ON");
   }
   return true; // to repeat the action - false to stop
@@ -277,11 +322,11 @@ void initInputPins()
 
 
 void printToLCD(char* message) {
-	client.publish("MainGate/STAT/message", message);
+	safePublish("MainGate/STAT/message", message);
 }
 
 void printRuntimeToLCD(char* message) {
-	client.publish("MainGate/STAT/message", message);
+	safePublish("MainGate/STAT/message", message);
 }
 
 void setup_wifi() {
@@ -294,11 +339,21 @@ void setup_wifi() {
   Serial.println(ssid);
 
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(true);
   WiFi.begin(ssid, password);
 
-  while (WiFi.status() != WL_CONNECTED) {
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
     delay(500);
     Serial.print(".");
+    attempts++;
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("");
+    Serial.println("WiFi connect timeout, will retry in background");
+    return;
   }
 
   randomSeed(micros());
@@ -309,7 +364,7 @@ void setup_wifi() {
   Serial.println("IP address: ");
   printToLCD("IP address: ");
   Serial.println(WiFi.localIP());
-  char* char_array = new char[20]; 
+  char char_array[20];
   strcpy(char_array,WiFi.localIP().toString().c_str());
   printToLCD(char_array);
 }
@@ -347,7 +402,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     Serial.println("New number received on MQTT: " + messageTemp);
     if(messageTemp.compareTo("ON") == 0) { relayStatusArray[0] = 1; strcpy(statusReport, "ON");}
     if(messageTemp.compareTo("OFF") == 0) { relayStatusArray[0] = 0; strcpy(statusReport, "OFF");}
-    client.publish("MainGate/STAT/Relay1", statusReport);
+    safePublish("MainGate/STAT/Relay1", statusReport);
   }
 
   if(relay2.compareTo(topic) == 0)
@@ -362,7 +417,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     if(messageTemp.compareTo("OFF") == 0) { 
       relayStatusArray[1] = 0; 
       strcpy(statusReport, "OFF");
-      client.publish("MainGate/STAT/Relay2", statusReport);
+      safePublish("MainGate/STAT/Relay2", statusReport);
     }
   }
 
@@ -371,7 +426,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     Serial.println("New text received on MQTT: " + messageTemp);
     if(messageTemp.compareTo("ON") == 0) { relayStatusArray[2] = 1; strcpy(statusReport, "ON");}
     if(messageTemp.compareTo("OFF") == 0) { relayStatusArray[2] = 0; strcpy(statusReport, "OFF");}
-    client.publish("MainGate/STAT/Relay3", statusReport);
+    safePublish("MainGate/STAT/Relay3", statusReport);
   }
 
   if(relay4.compareTo(topic) == 0)
@@ -379,7 +434,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
     Serial.println("New text received on MQTT: " + messageTemp);
     if(messageTemp.compareTo("ON") == 0) { relayStatusArray[3] = 1; strcpy(statusReport, "ON");}
     if(messageTemp.compareTo("OFF") == 0) { relayStatusArray[3] = 0; strcpy(statusReport, "OFF");}
-    client.publish("MainGate/STAT/Relay4", statusReport);
+    safePublish("MainGate/STAT/Relay4", statusReport);
   }
 
   if(statusReccurenceTopic.compareTo(topic) == 0) {
@@ -387,18 +442,18 @@ void callback(char* topic, byte* payload, unsigned int length) {
     int newReccurence;
     Serial.println("New text received on MQTT: " + numberMessageTemp);
     newReccurence = numberMessageTemp.toInt();
-    if(newReccurence <= 80000 && newReccurence > 1000)
+    if(app_logic::isConfigIntervalValid(newReccurence, 1001, 80000))
     {
        statusReportReccurence = newReccurence;
        numberMessageTemp.toCharArray(charArrayNumberMessageTemp,30);
-       client.publish("MainGate/STAT/statusReccurence", charArrayNumberMessageTemp);
+       safePublish("MainGate/STAT/statusReccurence", charArrayNumberMessageTemp);
        timer.cancel();
        timer.every(statusReportReccurence, mqttStatusReporting);
     }
     else
     {
       strcpy(statusReport, "Invalid");
-      client.publish("MainGate/STAT/statusReccurence", statusReport);
+      safePublish("MainGate/STAT/statusReccurence", statusReport);
     }
   }
 
@@ -407,16 +462,16 @@ void callback(char* topic, byte* payload, unsigned int length) {
     int newReccurence;
     Serial.println("New text received on MQTT: " + numberMessageTemp);
     newReccurence = numberMessageTemp.toInt();
-    if(newReccurence <= 80000 && newReccurence >= 1000)
+    if(app_logic::isConfigIntervalValid(newReccurence, 1000, 80000))
     {
        debounceSampleTime = newReccurence;
        numberMessageTemp.toCharArray(charArrayNumberMessageTemp,30);
-       client.publish("MainGate/STAT/debounceSampleTime", charArrayNumberMessageTemp);  
+       safePublish("MainGate/STAT/debounceSampleTime", charArrayNumberMessageTemp);  
     }
     else
     {
       strcpy(statusReport, "Invalid");
-      client.publish("MainGate/STAT/debounceSampleTime", statusReport);
+      safePublish("MainGate/STAT/debounceSampleTime", statusReport);
     }
   }
 
@@ -425,16 +480,16 @@ void callback(char* topic, byte* payload, unsigned int length) {
     int newReccurence;
     Serial.println("New text received on MQTT: " + numberMessageTemp);
     newReccurence = numberMessageTemp.toInt();
-    if(newReccurence <= 80000 && newReccurence >= 1000)
+    if(app_logic::isConfigIntervalValid(newReccurence, 1000, 80000))
     {
        relayGateOpenProcessingTime = newReccurence;
        numberMessageTemp.toCharArray(charArrayNumberMessageTemp,30);
-       client.publish("MainGate/STAT/relayProcessTimer", charArrayNumberMessageTemp);
+       safePublish("MainGate/STAT/relayProcessTimer", charArrayNumberMessageTemp);
     }
     else
     {
       strcpy(statusReport, "Invalid");
-      client.publish("MainGate/STAT/debounceSampleTime", statusReport);
+      safePublish("MainGate/STAT/debounceSampleTime", statusReport);
     }
   }
 
@@ -443,34 +498,72 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
 }
 
-void reconnect() {
-  // Loop until we're reconnected
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    // Create a random client ID
-    String clientId = "ESP8266Client-MainGate";
-    clientId += String(random(0xffff), HEX);
-    // Attempt to connect
-    if (client.connect(clientId.c_str())) {
-      Serial.println("connected");
-      // Once connected, publish an announcement...
-      client.publish("outTopic", "hello world");
-	  client.subscribe("MainGate/CMD/Relay1");
-	  client.subscribe("MainGate/CMD/Relay2");
-	  client.subscribe("MainGate/CMD/Relay3");
-	  client.subscribe("MainGate/CMD/Relay4");
+bool reconnect() {
+  if (!canUseCloudServices()) {
+    return false;
+  }
 
+  if (WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+
+  Serial.print("Attempting MQTT connection...");
+  String clientId = "ESP8266Client-MainGate";
+  clientId += String(random(0xffff), HEX);
+  if (client.connect(clientId.c_str())) {
+    Serial.println("connected");
+    safePublish("outTopic", "hello world");
+    client.subscribe("MainGate/CMD/Relay1");
+    client.subscribe("MainGate/CMD/Relay2");
+    client.subscribe("MainGate/CMD/Relay3");
+    client.subscribe("MainGate/CMD/Relay4");
     client.subscribe("MainGate/CMD/statusReccurence");
     client.subscribe("MainGate/CMD/debounceSampleTime");
     client.subscribe("MainGate/CMD/relayProcessTimer");
+    return true;
+  }
 
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println("try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(5000);
+  Serial.print("failed, rc=");
+  Serial.println(client.state());
+  return false;
+}
+
+void handleConnectivity() {
+  if (!canUseCloudServices()) {
+    if (client.connected()) {
+      client.disconnect();
     }
+    if (WiFi.status() == WL_CONNECTED) {
+      WiFi.disconnect();
+    }
+    return;
+  }
+
+  unsigned long now = millis();
+
+  if (WiFi.status() != WL_CONNECTED) {
+    if (app_logic::shouldAttemptWifiReconnect(
+            canUseCloudServices(),
+            false,
+            now,
+            lastWifiReconnectAttempt,
+            wifiReconnectInterval)) {
+      lastWifiReconnectAttempt = now;
+      Serial.println("WiFi disconnected, trying reconnect...");
+      WiFi.begin(ssid, password);
+    }
+    return;
+  }
+
+  if (app_logic::shouldAttemptMqttReconnect(
+          canUseCloudServices(),
+          true,
+          client.connected(),
+          now,
+          lastMqttReconnectAttempt,
+          mqttReconnectInterval)) {
+    lastMqttReconnectAttempt = now;
+    reconnect();
   }
 }
 
@@ -486,12 +579,17 @@ void setup()
 	initRelayPins();
   // intitialize the read out pins
   initInputPins();
+  mainsPowerAvailable = (inputStatusArray[1] == 1);
 
 	Serial.println("Ready to start");
 
 	//setup the mqtt connection
 	//pinMode(BUILTIN_LED, OUTPUT);   
-	setup_wifi();
+  if (mainsPowerAvailable) {
+	  setup_wifi();
+  } else {
+    Serial.println("Mains OFF at boot, entering offline mode");
+  }
 	client.setServer(mqtt_server, 1883);
 	client.setCallback(callback);
 	printToLCD("Boot-up ...");
@@ -502,11 +600,14 @@ void setup()
 
 void loop()
 {
-	if (!client.connected()) {
-    reconnect();
-	}
+  processInputPins();
+  mainsPowerAvailable = (inputStatusArray[1] == 1);
+  handleConnectivity();
   timer.tick();
   relayProcessTimer.tick();
   debounceTimer.tick();
-	client.loop();
+  enforceGateRelayFailsafe();
+  if (client.connected()) {
+	  client.loop();
+  }
 }
