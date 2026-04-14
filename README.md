@@ -54,7 +54,43 @@ platformio device monitor -b 115200
   - Normal close timer turns relay OFF after configured open window.
   - Loop-level failsafe force-closes gate relay if ON beyond safety max duration.
 
-## MQTT Topics
+## MQTT Quick Reference
+
+Use this section as the main copy/paste reference for MQTT integration.
+
+### Commands (publish to device)
+
+```text
+MainGate/CMD/Relay1                ON|OFF
+MainGate/CMD/Relay2                ON|OFF
+MainGate/CMD/Relay3                ON|OFF
+MainGate/CMD/Relay4                ON|OFF
+MainGate/CMD/statusReccurence      1001..80000
+MainGate/CMD/debounceSampleTime    1000..80000
+MainGate/CMD/relayProcessTimer     1000..80000
+```
+
+### Status and events (subscribe from device)
+
+```text
+MainGate/STAT/Relay1                    ON|OFF
+MainGate/STAT/Relay2                    ON|OFF
+MainGate/STAT/Relay3                    ON|OFF
+MainGate/STAT/Relay4                    ON|OFF
+MainGate/STAT/eventRelay                ON|OFF
+MainGate/STAT/eventKeypad               ON|OFF
+MainGate/STAT/eventPower                ON|OFF
+MainGate/STAT/reccurentStatusRelay1     ON|OFF
+MainGate/STAT/reccurentStatusRelay2     ON|OFF
+MainGate/STAT/reccurentStatusRelay3     ON|OFF
+MainGate/STAT/reccurentStatusRelay4     ON|OFF
+MainGate/STAT/reccurentStatusKeypad     ON|OFF
+MainGate/STAT/reccurentStatusMains      ON|OFF
+MainGate/STAT/heartbeat                 <seconds-online>
+MainGate/STAT/message                   <debug-text>
+```
+
+## MQTT Topics (Detailed)
 
 ### Commands (`MainGate/CMD/...`)
 

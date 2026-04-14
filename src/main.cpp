@@ -26,6 +26,7 @@ char msg[MSG_BUFFER_SIZE];
 
 // the interval that the system reports current status of the system
 int statusReportReccurence = 30000;
+int heartbeatReccurence = 60000;
 
 // the interval for opening the relays
 int relayGateOpenProcessingTime = 600;
@@ -43,6 +44,7 @@ unsigned long lastMqttReconnectAttempt = 0;
 bool mainsPowerAvailable = true;
 unsigned long gateRelayOnSince = 0;
 unsigned long gateRelayMaxOnDuration = 5000;
+unsigned long deviceOnlineSinceMs = 0;
 
 // timer for status reporting
 auto timer = timer_create_default();
@@ -271,6 +273,17 @@ bool mqttStatusReporting(void *) {
     Serial.println("Mains ON");
   }
   return true; // to repeat the action - false to stop
+}
+
+// heartbeat function that reports online elapsed time in seconds
+bool mqttHeartbeatReporting(void *) {
+  char heartbeatPayload[20];
+  unsigned long elapsedOnlineSeconds = (millis() - deviceOnlineSinceMs) / 1000;
+  snprintf(heartbeatPayload, sizeof(heartbeatPayload), "%lu", elapsedOnlineSeconds);
+  safePublish("MainGate/STAT/heartbeat", heartbeatPayload);
+  Serial.print("Heartbeat seconds online: ");
+  Serial.println(heartbeatPayload);
+  return true;
 }
 
 // correct key or fub activated
@@ -593,9 +606,11 @@ void setup()
 	client.setServer(mqtt_server, 1883);
 	client.setCallback(callback);
 	printToLCD("Boot-up ...");
+  deviceOnlineSinceMs = millis();
 
   // init status reporting on mqtt every reccurence setting default 30s
   timer.every(statusReportReccurence, mqttStatusReporting);
+  timer.every(heartbeatReccurence, mqttHeartbeatReporting);
 }
 
 void loop()
