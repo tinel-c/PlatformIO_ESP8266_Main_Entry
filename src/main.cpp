@@ -11,7 +11,7 @@
 #include "wifi_status_led.h"
 
 static const char kFleetId[] = "PlatformIO_ESP8266_Main_Entry";
-static const char kFirmwareVersion[] = "1.0.0";
+static const char kFirmwareVersion[] = "1.0.1";
 static const char kFleetStatusTopic[] = "gate/main/status";
 static const char kOtaHostname[] = "esp8266-main-gate";
 static const uint16_t kOtaPort = 8266;
@@ -450,6 +450,12 @@ void setup_wifi() {
   printToLCD(char_array);
 }
 
+bool commandEquals(const String& message, const char* expected) {
+  String value = message;
+  value.trim();
+  return value.equalsIgnoreCase(expected);
+}
+
 void callback(char* topic, byte* payload, unsigned int length) {
   // string to lcd
   String messageTemp;
@@ -481,21 +487,20 @@ void callback(char* topic, byte* payload, unsigned int length) {
   if(relay1.compareTo(topic) == 0)
   {
     Serial.println("New number received on MQTT: " + messageTemp);
-    if(messageTemp.compareTo("ON") == 0) { relayStatusArray[0] = 1; strcpy(statusReport, "ON");}
-    if(messageTemp.compareTo("OFF") == 0) { relayStatusArray[0] = 0; strcpy(statusReport, "OFF");}
-    safePublish("MainGate/STAT/Relay1", statusReport);
+    if (commandEquals(messageTemp, "ON")) { relayStatusArray[0] = 1; strcpy(statusReport, "ON"); safePublish("MainGate/STAT/Relay1", statusReport); }
+    else if (commandEquals(messageTemp, "OFF")) { relayStatusArray[0] = 0; strcpy(statusReport, "OFF"); safePublish("MainGate/STAT/Relay1", statusReport); }
   }
 
   if(relay2.compareTo(topic) == 0)
   {
     Serial.println("New text received on MQTT: " + messageTemp);
-    if(messageTemp.compareTo("ON") == 0) { 
+    if (commandEquals(messageTemp, "ON")) { 
       //relayStatusArray[1] = 1; strcpy(statusReport, "ON");}
       //special case open and close relay within 2 seconds or the coil will burn
       openGate();
       // will publish the statusReport in openGate no need to publish here
     }
-    if(messageTemp.compareTo("OFF") == 0) { 
+    else if (commandEquals(messageTemp, "OFF")) { 
       relayStatusArray[1] = 0; 
       strcpy(statusReport, "OFF");
       safePublish("MainGate/STAT/Relay2", statusReport);
@@ -505,17 +510,15 @@ void callback(char* topic, byte* payload, unsigned int length) {
   if(relay3.compareTo(topic) == 0)
   {
     Serial.println("New text received on MQTT: " + messageTemp);
-    if(messageTemp.compareTo("ON") == 0) { relayStatusArray[2] = 1; strcpy(statusReport, "ON");}
-    if(messageTemp.compareTo("OFF") == 0) { relayStatusArray[2] = 0; strcpy(statusReport, "OFF");}
-    safePublish("MainGate/STAT/Relay3", statusReport);
+    if (commandEquals(messageTemp, "ON")) { relayStatusArray[2] = 1; strcpy(statusReport, "ON"); safePublish("MainGate/STAT/Relay3", statusReport); }
+    else if (commandEquals(messageTemp, "OFF")) { relayStatusArray[2] = 0; strcpy(statusReport, "OFF"); safePublish("MainGate/STAT/Relay3", statusReport); }
   }
 
   if(relay4.compareTo(topic) == 0)
   {
     Serial.println("New text received on MQTT: " + messageTemp);
-    if(messageTemp.compareTo("ON") == 0) { relayStatusArray[3] = 1; strcpy(statusReport, "ON");}
-    if(messageTemp.compareTo("OFF") == 0) { relayStatusArray[3] = 0; strcpy(statusReport, "OFF");}
-    safePublish("MainGate/STAT/Relay4", statusReport);
+    if (commandEquals(messageTemp, "ON")) { relayStatusArray[3] = 1; strcpy(statusReport, "ON"); safePublish("MainGate/STAT/Relay4", statusReport); }
+    else if (commandEquals(messageTemp, "OFF")) { relayStatusArray[3] = 0; strcpy(statusReport, "OFF"); safePublish("MainGate/STAT/Relay4", statusReport); }
   }
 
   if(statusReccurenceTopic.compareTo(topic) == 0) {

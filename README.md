@@ -46,7 +46,7 @@ Two files hold the Wi-Fi SSID, WPA password, and MQTT broker address. `main.cpp`
 pio run -e esp12e
 ```
 
-Firmware **1.0.0** is the first image with ArduinoOTA. The board that is running an older image cannot take this update over the air.
+Firmware **1.0.0** is the first image with ArduinoOTA. The board that is running an older image cannot take this update over the air. **1.0.1** accepts relay commands with any case and surrounding space (`on`, `ON`, `OFF `).
 
 3. Open serial monitor:
 
