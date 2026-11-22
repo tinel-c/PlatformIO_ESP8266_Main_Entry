@@ -10,6 +10,9 @@ ESP8266 firmware for a main gate controller with local keypad triggering, MQTT r
 - Automatically re-enables WiFi and MQTT when mains returns.
 - Publishes clean `ON` / `OFF` status messages on `STAT` topics.
 - Includes a relay coil protection failsafe so gate relay (`Relay3`) cannot remain ON indefinitely.
+- Fleet status `gate/main/status` (`device`, `fw`, `ip`, `ota_port` 8266) for automatic OTA after the first UART flash.
+- SMS watchdog enroll on MQTT connect and each status cadence.
+- Module LED on GPIO2 (active-low) shows Wi-Fi with the shared blink pattern.
 
 ## Hardware Context
 
@@ -31,9 +34,12 @@ ESP8266 firmware for a main gate controller with local keypad triggering, MQTT r
 2. Build and upload to board:
 
 ```bash
-platformio run -e esp12e
-platformio run -e esp12e -t upload
+# First image that binds OTA must be UART. Later updates are `pio run` (fleet OTA).
+# SKIP_FLEET_OTA=1 pio run -e esp12e -t upload --upload-port COMx
+pio run -e esp12e
 ```
+
+Firmware **1.0.0** is the first image with ArduinoOTA. The board that is running an older image cannot take this update over the air.
 
 3. Open serial monitor:
 
@@ -88,7 +94,10 @@ MainGate/STAT/reccurentStatusKeypad     ON|OFF
 MainGate/STAT/reccurentStatusMains      ON|OFF
 MainGate/STAT/heartbeat                 <seconds-online>
 MainGate/STAT/message                   <debug-text>
+gate/main/status                        JSON fleet snapshot (device, fw, ip, ota_port)
 ```
+
+`gate/main/status` is QoS 0 as published by PubSubClient (not retained). Client id is `PlatformIO_ESP8266_Main_Entry`. ArduinoOTA hostname is `esp8266-main-gate`, port **8266**. OTA start forces Relay 3 off. The GPIO2 LED is the Wi-Fi indicator (lit when low): wink every 2 s when associated, fast blink while joining, 500 ms blink while down, two flashes on failure.
 
 ## MQTT Topics (Detailed)
 

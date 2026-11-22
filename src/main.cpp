@@ -1,10 +1,20 @@
 #include "Arduino.h"
 #include <Wire.h>
 #include <ESP8266WiFi.h>
+#include <ArduinoOTA.h>
 #include <PubSubClient.h>
 #include <arduino-timer.h>
 #include "password.h"
 #include "app_logic.h"
+#include "board_pins.h"
+#include "sms_watchdog_client.h"
+#include "wifi_status_led.h"
+
+static const char kFleetId[] = "PlatformIO_ESP8266_Main_Entry";
+static const char kFirmwareVersion[] = "1.0.0";
+static const char kFleetStatusTopic[] = "gate/main/status";
+static const char kOtaHostname[] = "esp8266-main-gate";
+static const uint16_t kOtaPort = 8266;
 
 
 // internal relay status
@@ -39,6 +49,9 @@ unsigned long wifiReconnectInterval = 5000;
 unsigned long mqttReconnectInterval = 5000;
 unsigned long lastWifiReconnectAttempt = 0;
 unsigned long lastMqttReconnectAttempt = 0;
+unsigned long lastWifiBeginMs = 0;
+bool gOtaReady = false;
+bool gOtaActive = false;
 
 // runtime mode flags
 bool mainsPowerAvailable = true;
@@ -208,6 +221,59 @@ bool inputDebounceProcessing(void *) {
   return false;
 }
 
+void publishFleetStatus() {
+  if (gOtaActive || !client.connected() || WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+  const IPAddress ip = WiFi.localIP();
+  char payload[192];
+  snprintf(
+      payload,
+      sizeof(payload),
+      "{\"device\":\"%s\",\"fw\":\"%s\",\"ip\":\"%u.%u.%u.%u\",\"ota_port\":%u}",
+      kFleetId,
+      kFirmwareVersion,
+      ip[0],
+      ip[1],
+      ip[2],
+      ip[3],
+      static_cast<unsigned>(kOtaPort));
+  client.publish(kFleetStatusTopic, payload, false);
+  smsWatchdogRegister(client, kFleetId, SMS_WATCHDOG_DEFAULT_INTERVAL_S);
+}
+
+void configureOta() {
+  ArduinoOTA.setHostname(kOtaHostname);
+  ArduinoOTA.setPort(kOtaPort);
+  ArduinoOTA.onStart([]() {
+    gOtaActive = true;
+    Serial.println("OTA start — gate relay forced off");
+    closeRelay(nullptr);
+  });
+  ArduinoOTA.onEnd([]() {
+    digitalWrite(PIN_STATUS_LED, LED_IDLE_LEVEL);
+    Serial.println("OTA end");
+    gOtaActive = false;
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    gOtaActive = false;
+    Serial.printf("OTA error %u\n", error);
+  });
+}
+
+void ensureOta() {
+  if (WiFi.status() != WL_CONNECTED) {
+    gOtaReady = false;
+    return;
+  }
+  if (gOtaReady) {
+    return;
+  }
+  ArduinoOTA.begin();
+  gOtaReady = true;
+  Serial.printf("OTA listening on %s:%u\n", WiFi.localIP().toString().c_str(), kOtaPort);
+}
+
 // status function that reports every statusReportReccurence on mqtt the internal status
 bool mqttStatusReporting(void *) {
   char statusReport[20];
@@ -272,6 +338,7 @@ bool mqttStatusReporting(void *) {
     safePublish("MainGate/STAT/reccurentStatusMains", statusReport);
     Serial.println("Mains ON");
   }
+  publishFleetStatus();
   return true; // to repeat the action - false to stop
 }
 
@@ -354,6 +421,7 @@ void setup_wifi() {
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
+  lastWifiBeginMs = millis();
   WiFi.begin(ssid, password);
 
   int attempts = 0;
@@ -521,11 +589,10 @@ bool reconnect() {
   }
 
   Serial.print("Attempting MQTT connection...");
-  String clientId = "ESP8266Client-MainGate";
-  clientId += String(random(0xffff), HEX);
-  if (client.connect(clientId.c_str())) {
+  if (client.connect(kFleetId)) {
     Serial.println("connected");
     safePublish("outTopic", "hello world");
+    publishFleetStatus();
     client.subscribe("MainGate/CMD/Relay1");
     client.subscribe("MainGate/CMD/Relay2");
     client.subscribe("MainGate/CMD/Relay3");
@@ -563,6 +630,7 @@ void handleConnectivity() {
             wifiReconnectInterval)) {
       lastWifiReconnectAttempt = now;
       Serial.println("WiFi disconnected, trying reconnect...");
+      lastWifiBeginMs = millis();
       WiFi.begin(ssid, password);
     }
     return;
@@ -596,14 +664,16 @@ void setup()
 
 	Serial.println("Ready to start");
 
-	//setup the mqtt connection
-	//pinMode(BUILTIN_LED, OUTPUT);   
+  pinMode(PIN_STATUS_LED, OUTPUT);
+  digitalWrite(PIN_STATUS_LED, LED_IDLE_LEVEL);
+  configureOta();
   if (mainsPowerAvailable) {
 	  setup_wifi();
   } else {
     Serial.println("Mains OFF at boot, entering offline mode");
   }
 	client.setServer(mqtt_server, 1883);
+  client.setBufferSize(512);
 	client.setCallback(callback);
 	printToLCD("Boot-up ...");
   deviceOnlineSinceMs = millis();
@@ -618,6 +688,11 @@ void loop()
   processInputPins();
   mainsPowerAvailable = (inputStatusArray[1] == 1);
   handleConnectivity();
+  ensureOta();
+  if (gOtaReady) {
+    ArduinoOTA.handle();
+  }
+  updateWifiStatusLed(lastWifiBeginMs);
   timer.tick();
   relayProcessTimer.tick();
   debounceTimer.tick();
