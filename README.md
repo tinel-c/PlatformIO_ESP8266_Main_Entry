@@ -30,7 +30,14 @@ ESP8266 firmware for a main gate controller with local keypad triggering, MQTT r
 
 ## Configuration
 
-1. Create `password.h` from your template (SSID, WiFi password, MQTT server).
+Two files hold the Wi-Fi SSID, WPA password, and MQTT broker address. `main.cpp` includes `password.h` and reads `ssid`, `password`, and `mqtt_server` (broker port is 1883, anonymous).
+
+| File | In git | Role |
+|------|--------|------|
+| `src/password.h_template` | yes | Placeholders. Safe to commit. |
+| `src/password.h` | no | Real values for this machine. Listed in `.gitignore`. |
+
+1. Copy `src/password.h_template` to `src/password.h` and replace the placeholders. Use the same 2.4 GHz network as the other ESP boards. `mqtt_server` is `192.168.2.4`.
 2. Build and upload to board:
 
 ```bash
